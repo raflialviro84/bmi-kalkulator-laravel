@@ -19,7 +19,7 @@
         <input type="hidden" name="device_uuid" id="device_uuid">
         <input type="hidden" name="device_name" id="device_name">
         <input type="hidden" name="platform" id="platform">
-        <input type="hidden" name="app_id" id="app_id">
+        <input type="hidden" name="app_id" id="app_id" value="{{ env('APP_ID') }}">
         <button type="submit" class="btn btn-primary w-100">Login</button>
     </form>
 </div>
@@ -54,6 +54,6 @@
     }
     document.getElementById('device_name').value = getDeviceName();
     document.getElementById('platform').value = 'web';
-    document.getElementById('app_id').value = 'bmi-kalkulator';
+    document.getElementById('app_id').value = '{{ env('APP_ID') }}';
 </script>
 @endsection
