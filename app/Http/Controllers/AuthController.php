@@ -3,6 +3,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use App\Models\Role;
 
@@ -56,14 +58,26 @@ class AuthController extends Controller
 
         $loginUrl = rtrim($ssoBase, '/') . '/api/login';
 
-        $response = Http::post($loginUrl, [
-            'email' => $request->email,
-            'password' => $request->password,
-            'device_uuid' => $request->device_uuid,
-            'device_name' => $request->device_name,
-            'platform' => $request->platform,
-            'app_id' => env('APP_ID'),
-        ]);
+        try {
+            $response = Http::withOptions([
+                // connection timeout (seconds) and overall timeout
+                'connect_timeout' => 5,
+                'timeout' => 10,
+            ])->post($loginUrl, [
+                'email' => $request->email,
+                'password' => $request->password,
+                'device_uuid' => $request->device_uuid,
+                'device_name' => $request->device_name,
+                'platform' => $request->platform,
+                'app_id' => env('APP_ID'),
+            ]);
+        } catch (ConnectionException $e) {
+            Log::error('SSO connection failed: '.$e->getMessage(), ['url' => $loginUrl]);
+            return back()->withErrors(['login' => 'Tidak dapat terhubung ke layanan SSO. Silakan coba lagi beberapa saat.']);
+        } catch (\Exception $e) {
+            Log::error('SSO request error: '.$e->getMessage(), ['url' => $loginUrl]);
+            return back()->withErrors(['login' => 'Terjadi kesalahan saat menghubungi SSO. Silakan coba lagi.']);
+        }
 
         if ($response->successful() && isset($response['access_token'])) {
             session(['access_token' => $response['access_token']]);
@@ -142,7 +156,17 @@ class AuthController extends Controller
             }
             return redirect('/');
         } else {
-            $error = $response->json('message') ?? 'Login gagal!';
+            $status = $response->status();
+            $body = $response->body();
+            Log::warning('SSO login failed', ['status' => $status, 'body' => $body, 'url' => $loginUrl]);
+
+            if (config('app.debug')) {
+                $msg = $response->json('message') ?? $body;
+                $error = "SSO error: {$status} - {$msg}";
+            } else {
+                $error = $response->json('message') ?? 'Login gagal!';
+            }
+
             return back()->withErrors(['login' => $error]);
         }
     }
