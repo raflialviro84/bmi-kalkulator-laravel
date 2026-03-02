@@ -34,6 +34,149 @@ class AuthController extends Controller
 
         return view('profile', ['user' => $user, 'dbUser' => $dbUser]);
     }
+    /**
+     * Tampilkan form edit profil.
+     */
+    public function editProfile(Request $request)
+    {
+        $ssoId = session('user_sso_id');
+        $email = session('user_email');
+
+        $dbUser = null;
+        if ($ssoId) {
+            $dbUser = User::where('sso_id', $ssoId)->first();
+        }
+        if (!$dbUser && $email) {
+            $dbUser = User::where('email', $email)->first();
+        }
+
+        $user = [
+            'name' => session('user_name', 'User'),
+            'email' => session('user_email', 'user@example.com'),
+        ];
+
+        return view('update-profile', ['user' => $user, 'dbUser' => $dbUser]);
+    }
+
+    /**
+     * Proses update profil: update ke SSO dan sinkron ke DB + session.
+     */
+    public function updateProfile(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'gender' => 'nullable|string|max:20',
+            'birthdate' => 'nullable|date',
+            'phone' => 'nullable|string|max:40',
+        ]);
+
+        // Normalize gender value to lowercase to accept case variations (e.g. 'Male', 'male')
+        $genderRaw = $request->input('gender');
+        $gender = $genderRaw ? strtolower($genderRaw) : null;
+        if ($gender && !in_array($gender, ['male', 'female', 'other'])) {
+            return back()->withErrors(['gender' => 'Gender tidak valid.']);
+        }
+
+        // Map local gender values to SSO expected values (SSO expects 'pria' or 'wanita')
+        $ssoGender = null;
+        if ($gender === 'male') {
+            $ssoGender = 'pria';
+        } elseif ($gender === 'female') {
+            $ssoGender = 'wanita';
+        } else {
+            // other -> do not send gender to SSO (SSO doesn't support 'other')
+            $ssoGender = null;
+        }
+
+        // Normalize and trim phone to SSO limits (max 20)
+        $phoneRaw = $request->input('phone');
+        $phone = $phoneRaw ? substr($phoneRaw, 0, 20) : null;
+
+        $payload = [
+            'name' => $request->input('name'),
+            'gender' => $ssoGender,
+            'birthdate' => $request->input('birthdate'),
+            'phone' => $phone,
+            // include email as read-only identifier if available
+            'email' => session('user_email'),
+            // include sso identifier if available (some SSO servers require this)
+            'sso_id' => session('user_sso_id'),
+            'app_id' => env('APP_ID'),
+        ];
+        // also include alternative phone keys some SSO implementations expect
+        if ($phone) {
+            $payload['phone_number'] = $phone;
+            $payload['no_telp'] = $phone;
+        }
+
+        $ssoBase = env('API_SSO_URL');
+        if (empty($ssoBase)) {
+            return back()->withErrors(['update' => 'SSO API URL belum dikonfigurasi.']);
+        }
+
+        $updateUrl = rtrim($ssoBase, '/') . '/api/update-profile';
+
+        try {
+            $http = Http::withOptions(['connect_timeout' => 5, 'timeout' => 10])->accept('application/json');
+            if (session('access_token')) {
+                $http = $http->withToken(session('access_token'));
+            }
+
+            // Log request payload (sanitized) to help debugging
+            Log::info('SSO update request', ['url' => $updateUrl, 'payload_keys' => array_keys($payload)]);
+
+            $response = $http->post($updateUrl, $payload);
+
+            // Log response for diagnosis
+            Log::info('SSO update response', ['status' => $response->status(), 'body' => $response->body()]);
+        } catch (ConnectionException $e) {
+            Log::error('SSO update connection failed: '.$e->getMessage(), ['url' => $updateUrl]);
+            return back()->withErrors(['update' => 'Tidak dapat terhubung ke layanan SSO. Silakan coba lagi nanti.']);
+        } catch (\Exception $e) {
+            Log::error('SSO update request error: '.$e->getMessage(), ['url' => $updateUrl]);
+            return back()->withErrors(['update' => 'Terjadi kesalahan saat menghubungi SSO.']);
+        }
+
+        if ($response->successful()) {
+            // Update local DB user if exists
+            $ssoId = session('user_sso_id');
+            $email = session('user_email');
+            $userModel = null;
+            if ($ssoId) {
+                $userModel = User::where('sso_id', $ssoId)->first();
+            }
+            if (!$userModel && $email) {
+                $userModel = User::where('email', $email)->first();
+            }
+
+            if (!$userModel) {
+                $userModel = new User();
+                $userModel->email = $email;
+                $userModel->sso_id = $ssoId;
+            }
+
+            $userModel->name = $payload['name'] ?? $userModel->name;
+            $userModel->gender = $payload['gender'] ?? $userModel->gender;
+            $userModel->birthdate = $payload['birthdate'] ?? $userModel->birthdate;
+            $userModel->phone = $payload['phone'] ?? $userModel->phone;
+            $userModel->save();
+
+            // Update session values
+            session(['user_name' => $userModel->name]);
+            session(['user_gender' => $userModel->gender]);
+            session(['user_birthdate' => $userModel->birthdate]);
+            session(['user_phone' => $userModel->phone]);
+
+            return redirect()->route('profile')->with('success', 'Profil berhasil diperbarui.');
+        }
+
+        $status = $response->status();
+        $body = $response->body();
+        Log::warning('SSO update failed', ['status' => $status, 'body' => $body, 'url' => $updateUrl]);
+
+        $errorMsg = $response->json('message') ?? 'Gagal memperbarui profil di SSO.';
+        return back()->withErrors(['update' => $errorMsg]);
+    }
     public function showLoginForm()
     {
         return view('login');

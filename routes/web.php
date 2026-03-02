@@ -18,7 +18,10 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 Route::middleware(['auth.sso'])->group(function () {
 	Route::get('/', [BmiController::class, 'index'])->name('bmi.index');
 	Route::post('/', [BmiController::class, 'calculate'])->name('bmi.calculate');
-	Route::get('/profile', [App\Http\Controllers\AuthController::class, 'profile'])->name('profile');
+		Route::get('/profile', [App\Http\Controllers\AuthController::class, 'profile'])->name('profile');
+		// Halaman edit profil
+		Route::get('/profile/edit', [App\Http\Controllers\AuthController::class, 'editProfile'])->name('profile.edit');
+		Route::post('/profile/update', [App\Http\Controllers\AuthController::class, 'updateProfile'])->name('profile.update');
 
 	// Admin area (dashboard + role management) - requires admin role
 	Route::middleware([\App\Http\Middleware\EnsureAdmin::class])->prefix('admin')->group(function () {

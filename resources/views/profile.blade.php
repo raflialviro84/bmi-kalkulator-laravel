@@ -14,7 +14,20 @@
                 <strong>Gender:</strong> {{ session('user_gender') ?? ($user['gender'] ?? ($user->gender ?? '-')) }}
             </div>
             <div class="mb-3">
-                <strong>Birthdate:</strong> {{ session('user_birthdate') ?? ($user['birthdate'] ?? ($user->birthdate ?? '-')) }}
+                <strong>Birthdate:</strong>
+                @php
+                    $birthRaw = session('user_birthdate') ?? ($dbUser->birthdate ?? ($user['birthdate'] ?? ($user->birthdate ?? null)));
+                    $birthDisplay = '-';
+                    if (!empty($birthRaw)) {
+                        $ts = strtotime($birthRaw);
+                        if ($ts !== false) {
+                            $birthDisplay = date('Y-m-d', $ts);
+                        } else {
+                            $birthDisplay = $birthRaw;
+                        }
+                    }
+                @endphp
+                {{ $birthDisplay }}
             </div>
             <div class="mb-3">
                 <strong>Phone:</strong> {{ session('user_phone') ?? ($user['phone'] ?? ($user->phone ?? '-')) }}
@@ -31,6 +44,7 @@
     </div>
     <div class="mt-3" style="display:flex;gap:10px;">
         <a href="/" class="btn btn-secondary">Kembali ke Kalkulator</a>
+        <a href="{{ route('profile.edit') }}" class="btn btn-primary">Update Profil</a>
         <form method="POST" action="{{ url('/logout') }}" style="display:inline;">
             @csrf
             <button type="submit" class="btn btn-danger">Logout</button>
