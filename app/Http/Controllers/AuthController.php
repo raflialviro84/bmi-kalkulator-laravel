@@ -319,4 +319,70 @@ class AuthController extends Controller
         session()->forget(['access_token', 'refresh_token']);
         return redirect('/login');
     }
+
+    /**
+     * Show change password form.
+     */
+    public function showResetPasswordForm()
+    {
+        return view('reset-password');
+    }
+
+    /**
+     * Handle password change request by forwarding to SSO API.
+     */
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            // enforce SSO rules: min 8, 1 lower, 1 upper, 1 symbol
+            'new_password' => ['required', 'string', 'confirmed', 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).{8,}$/'],
+        ], [
+            'new_password.regex' => 'Minimal 8 karakter, 1 huruf kecil, 1 huruf kapital, dan 1 simbol.',
+        ]);
+
+        $ssoBase = env('API_SSO_URL');
+        if (empty($ssoBase)) {
+            return back()->withErrors(['password' => 'SSO API URL belum dikonfigurasi.']);
+        }
+
+        $resetUrl = rtrim($ssoBase, '/') . '/api/reset-password';
+
+        $payload = [
+            'current_password' => $request->input('current_password'),
+            'new_password' => $request->input('new_password'),
+            'new_password_confirmation' => $request->input('new_password_confirmation'),
+            'app_id' => env('APP_ID'),
+        ];
+
+        try {
+            $http = Http::withOptions(['connect_timeout' => 5, 'timeout' => 10])->accept('application/json');
+            if (session('access_token')) {
+                $http = $http->withToken(session('access_token'));
+            }
+
+            Log::info('SSO reset-password request', ['url' => $resetUrl, 'payload_keys' => array_keys($payload)]);
+
+            $response = $http->post($resetUrl, $payload);
+
+            Log::info('SSO reset-password response', ['status' => $response->status(), 'body' => $response->body()]);
+        } catch (ConnectionException $e) {
+            Log::error('SSO reset-password connection failed: '.$e->getMessage(), ['url' => $resetUrl]);
+            return back()->withErrors(['password' => 'Tidak dapat terhubung ke layanan SSO. Silakan coba lagi nanti.']);
+        } catch (\Exception $e) {
+            Log::error('SSO reset-password request error: '.$e->getMessage(), ['url' => $resetUrl]);
+            return back()->withErrors(['password' => 'Terjadi kesalahan saat menghubungi SSO.']);
+        }
+
+        if ($response->successful()) {
+            return redirect()->route('profile')->with('success', 'Password berhasil diubah.');
+        }
+
+        $status = $response->status();
+        $body = $response->body();
+        Log::warning('SSO reset-password failed', ['status' => $status, 'body' => $body, 'url' => $resetUrl]);
+
+        $errorMsg = $response->json('message') ?? 'Gagal mengubah password.';
+        return back()->withErrors(['password' => $errorMsg]);
+    }
 }

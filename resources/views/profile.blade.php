@@ -45,6 +45,7 @@
     <div class="mt-3" style="display:flex;gap:10px;">
         <a href="/" class="btn btn-secondary">Kembali ke Kalkulator</a>
         <a href="{{ route('profile.edit') }}" class="btn btn-primary">Update Profil</a>
+        <a href="{{ route('profile.password') }}" class="btn btn-outline-primary">Ubah Password</a>
         <form method="POST" action="{{ url('/logout') }}" style="display:inline;">
             @csrf
             <button type="submit" class="btn btn-danger">Logout</button>

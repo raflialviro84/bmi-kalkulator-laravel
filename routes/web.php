@@ -23,6 +23,10 @@ Route::middleware(['auth.sso'])->group(function () {
 		Route::get('/profile/edit', [App\Http\Controllers\AuthController::class, 'editProfile'])->name('profile.edit');
 		Route::post('/profile/update', [App\Http\Controllers\AuthController::class, 'updateProfile'])->name('profile.update');
 
+		// Ubah password (tampilkan form + proses)
+		Route::get('/profile/password', [App\Http\Controllers\AuthController::class, 'showResetPasswordForm'])->name('profile.password');
+		Route::post('/profile/password', [App\Http\Controllers\AuthController::class, 'resetPassword'])->name('profile.password.update');
+
 	// Admin area (dashboard + role management) - requires admin role
 	Route::middleware([\App\Http\Middleware\EnsureAdmin::class])->prefix('admin')->group(function () {
 		Route::get('/', [AdminController::class, 'index'])->name('admin.dashboard');
